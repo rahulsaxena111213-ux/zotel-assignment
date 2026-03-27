@@ -2,11 +2,12 @@
 
 namespace Database\Seeders;
 
-use App\Enums\MealPlan;
 use App\Enums\ReservationStatus;
+use App\Models\RatePlan;
+use App\Models\RatePlanPrice;
+use App\Models\RatePlanDiscount;
 use App\Models\Reservation;
 use App\Models\Room;
-use App\Models\RoomDailyRate;
 use App\Models\RoomType;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Seeder;
@@ -21,7 +22,9 @@ class HotelSeeder extends Seeder
 
         DB::transaction(function () use ($today) {
             Reservation::query()->delete();
-            RoomDailyRate::query()->delete();
+            RatePlanDiscount::query()->delete();
+            RatePlanPrice::query()->delete();
+            RatePlan::query()->delete();
             Room::query()->delete();
             RoomType::query()->delete();
 
@@ -36,7 +39,7 @@ class HotelSeeder extends Seeder
             $deluxe = RoomType::query()->create([
                 'code' => 'deluxe',
                 'name' => 'Deluxe',
-                'max_adults' => 3,
+                'max_adults' => 4,
                 'description' => 'Larger room with premium amenities.',
                 'is_active' => true,
             ]);
@@ -44,8 +47,10 @@ class HotelSeeder extends Seeder
             $this->seedRooms($standard, 'STD', 5);
             $this->seedRooms($deluxe, 'DLX', 5);
 
-            $this->seedRatesForWindow($standard, $today, 30);
-            $this->seedRatesForWindow($deluxe, $today, 30);
+            $this->seedRatePlans($standard, $today, 30);
+            $this->seedRatePlans($deluxe, $today, 30);
+
+            $this->seedDiscountRules($standard, $deluxe);
 
             $stdRoom = Room::query()->where('room_type_id', $standard->id)->orderBy('id')->first();
             if ($stdRoom) {
@@ -74,36 +79,65 @@ class HotelSeeder extends Seeder
         }
     }
 
-    private function seedRatesForWindow(RoomType $type, CarbonImmutable $start, int $days): void
+    private function seedRatePlans(RoomType $type, CarbonImmutable $start, int $days): void
     {
-        for ($d = 0; $d < $days; $d++) {
-            $date = $start->addDays($d);
-            $isWeekend = $date->isSaturday() || $date->isSunday();
+        $planDefs = match ($type->code) {
+            'standard' => [
+                ['code' => 'EP', 'name' => 'Room Only', 'meal_plan' => 'room_only', 'addon' => 0.0],
+                ['code' => 'CP', 'name' => 'Breakfast Included', 'meal_plan' => 'breakfast_included', 'addon' => 18.0],
+            ],
+            'deluxe' => [
+                ['code' => 'CP', 'name' => 'Breakfast Included', 'meal_plan' => 'breakfast_included', 'addon' => 25.0],
+                ['code' => 'MAP', 'name' => 'All Meals Included', 'meal_plan' => 'all_meals_included', 'addon' => 55.0],
+            ],
+            default => [],
+        };
 
-            $roomOnly = match ($type->code) {
-                'standard' => $isWeekend ? 120.00 : 95.00,
-                'deluxe' => $isWeekend ? 185.00 : 155.00,
-                default => 100.00,
-            };
-
-            $breakfastExtra = match ($type->code) {
-                'standard' => 18.00,
-                'deluxe' => 25.00,
-                default => 15.00,
-            };
-
-            RoomDailyRate::query()->create([
+        foreach ($planDefs as $planDef) {
+            $plan = RatePlan::query()->create([
                 'room_type_id' => $type->id,
-                'rate_date' => $date,
-                'meal_plan' => MealPlan::RoomOnly->value,
-                'amount' => $roomOnly,
+                'code' => $planDef['code'],
+                'name' => $planDef['name'],
+                'meal_plan' => $planDef['meal_plan'],
+                'is_active' => true,
             ]);
 
-            RoomDailyRate::query()->create([
-                'room_type_id' => $type->id,
-                'rate_date' => $date,
-                'meal_plan' => MealPlan::BreakfastIncluded->value,
-                'amount' => round($roomOnly + $breakfastExtra, 2),
+            for ($d = 0; $d < $days; $d++) {
+                $date = $start->addDays($d);
+                $isWeekend = $date->isSaturday() || $date->isSunday();
+
+                $base = match ($type->code) {
+                    'standard' => $isWeekend ? 120.00 : 95.00,
+                    'deluxe' => $isWeekend ? 185.00 : 155.00,
+                    default => 100.00,
+                };
+
+                $amount = round($base + $planDef['addon'], 2);
+
+                RatePlanPrice::query()->create([
+                    'rate_plan_id' => $plan->id,
+                    'rate_date' => $date,
+                    'amount' => $amount,
+                ]);
+            }
+        }
+    }
+
+    private function seedDiscountRules(RoomType $standard, RoomType $deluxe): void
+    {
+        $ratePlans = RatePlan::query()->whereIn('room_type_id', [$standard->id, $deluxe->id])->get();
+
+        foreach ($ratePlans as $plan) {
+            $discountPercent = in_array($plan->code, ['CP', 'MAP'], true) ? 10.00 : 5.00;
+
+            RatePlanDiscount::query()->create([
+                'rate_plan_id' => $plan->id,
+                'code' => 'early_bird',
+                'name' => 'Early bird discount',
+                'amount_type' => 'percent',
+                'amount' => $discountPercent,
+                'rules' => [],
+                'is_active' => true,
             ]);
         }
     }

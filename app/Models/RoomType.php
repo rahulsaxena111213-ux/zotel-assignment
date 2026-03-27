@@ -36,4 +36,10 @@ class RoomType extends Model
     {
         return $this->hasMany(RoomDailyRate::class);
     }
+
+    /** @return HasMany<RatePlan, $this> */
+    public function ratePlans(): HasMany
+    {
+        return $this->hasMany(RatePlan::class);
+    }
 }

@@ -24,7 +24,7 @@ class SearchHotelsRequest extends FormRequest
             'check_in_date' => ['required', 'date', 'after_or_equal:today'],
             'check_out_date' => ['required', 'date', 'after:check_in_date'],
             'guest_count' => ['required', 'integer', 'min:1', 'max:'.$maxGuests],
-            'meal_plan' => ['required', 'string', Rule::enum(MealPlan::class)],
+            'meal_plan' => ['sometimes', 'nullable', 'string', Rule::enum(MealPlan::class)],
             'debug' => ['sometimes', 'boolean'],
         ];
     }

@@ -17,7 +17,7 @@ class HotelSearchController extends Controller
             CarbonImmutable::parse($request->validated('check_in_date'))->startOfDay(),
             CarbonImmutable::parse($request->validated('check_out_date'))->startOfDay(),
             (int) $request->validated('guest_count'),
-            $request->enum('meal_plan', MealPlan::class),
+            $request->has('meal_plan') ? $request->enum('meal_plan', MealPlan::class) : null,
             null,
             $request->boolean('debug'),
         );
